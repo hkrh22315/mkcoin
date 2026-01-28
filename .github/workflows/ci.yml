@@ -42,5 +42,7 @@ jobs:
           echo "Lint ツールはまだ設定されていません。ruff や flake8 を導入したらここで実行してください。"
 
       - name: Test with pytest
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           pytest -v
