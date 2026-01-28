@@ -104,6 +104,71 @@ class TradingBot:
             
             writer.writerow(trade_data)
     
+    def close_position(self, position_id: str, side: str, size: float):
+        """
+        既存ポジションを決済する
+        
+        Args:
+            position_id: 決済対象のポジションID
+            side: 元のポジションの売買区分（BUY/SELL）
+            size: 決済数量
+        """
+        try:
+            # 決済は元のポジションと逆方向の注文を出す
+            close_side = "SELL" if side == "BUY" else "BUY"
+            
+            current_price = self.strategy.get_current_price()
+            if current_price is None:
+                self.logger.error("決済時に現在価格が取得できませんでした")
+                return
+            
+            response = self.strategy.client.place_order(
+                symbol=self.strategy.symbol,
+                side=close_side,
+                execution_type="MARKET",
+                size=str(size),
+                price=None
+            )
+            
+            order_id = response.get("data")
+            
+            self.logger.info(
+                f"ポジションを決済しました: position_id={position_id}, "
+                f"side={close_side}, size={size}, price={current_price:.0f}, "
+                f"order_id={order_id}"
+            )
+            
+            # 決済取引を履歴に記録
+            trade_data = {
+                'timestamp': datetime.now().isoformat(),
+                'side': close_side,
+                'size': size,
+                'price': current_price,
+                'order_id': order_id,
+                'signal': 'AUTO_CLOSE',
+                'status': 'CLOSED',
+                'error_message': ''
+            }
+            self.save_trade_history(trade_data)
+            self.risk_manager.record_trade(close_side, size, current_price, order_id)
+        
+        except Exception as e:
+            self.logger.error(
+                f"ポジション決済エラー: position_id={position_id}, error={e}"
+            )
+            
+            trade_data = {
+                'timestamp': datetime.now().isoformat(),
+                'side': side,
+                'size': size,
+                'price': 0,
+                'order_id': None,
+                'signal': 'AUTO_CLOSE',
+                'status': 'ERROR_CLOSE',
+                'error_message': str(e)
+            }
+            self.save_trade_history(trade_data)
+    
     def check_existing_positions(self):
         """既存のポジションをチェックし、損切り・利確を実行"""
         try:
@@ -126,15 +191,15 @@ class TradingBot:
                 # 損切りチェック
                 if self.risk_manager.check_stop_loss(current_price, entry_price, side, size):
                     self.logger.warning(f"損切りを実行: ポジションID {position_id}")
-                    # 決済注文を発注（実装が必要）
-                    # self.close_position(position_id, side, size)
+                    # 決済注文を発注
+                    self.close_position(position_id, side, size)
                     continue
                 
                 # 利確チェック
                 if self.risk_manager.check_take_profit(current_price, entry_price, side, size):
                     self.logger.info(f"利確を実行: ポジションID {position_id}")
-                    # 決済注文を発注（実装が必要）
-                    # self.close_position(position_id, side, size)
+                    # 決済注文を発注
+                    self.close_position(position_id, side, size)
                     continue
                     
         except Exception as e:
