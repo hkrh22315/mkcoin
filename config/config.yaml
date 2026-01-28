@@ -1,0 +1,35 @@
+# GMOコインAPI設定
+api:
+  endpoint: "https://api.coin.z.com"
+  # APIキーとシークレットは環境変数から読み込みます
+
+# 取引設定
+trading:
+  symbol: "BTC_JPY"  # 通貨ペア
+  order_type: "MARKET"  # MARKET: 成行, LIMIT: 指値
+  amount: 0.001  # 取引数量（BTC単位）
+  
+  # 移動平均線設定
+  moving_average:
+    short_period: 20  # 短期移動平均線の期間
+    long_period: 50   # 長期移動平均線の期間
+    timeframe: "5min"  # ローソク足の時間足 (1min, 5min, 15min, 1hour, 4hour, 1day)
+
+# リスク管理設定
+risk_management:
+  stop_loss: 10000  # 損切り額（円）
+  take_profit: 20000  # 利確額（円）
+  max_position_size: 0.01  # 最大ポジションサイズ（BTC単位）
+  max_reversal_count: 5  # 反転注文数の上限
+  max_consecutive_errors: 3  # エラー連続許容回数
+
+# 実行設定
+execution:
+  mode: "manual"  # manual: 手動実行, auto: 自動実行
+  auto_interval: 60  # 自動実行間隔（秒）
+
+# ログ設定
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  log_dir: "logs"
+  trade_history_dir: "data"
