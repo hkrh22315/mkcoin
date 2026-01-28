@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from datetime import datetime
 import csv
+import time
 
 # プロジェクトルートをパスに追加
 project_root = Path(__file__).parent.parent
@@ -75,6 +76,9 @@ class TradingBot:
         # 取引設定
         self.order_type = trading_config.get("order_type", "MARKET")
         self.amount = trading_config.get("amount", 0.001)
+        # 実行設定
+        self.execution_mode = self.config.get("execution.mode", "manual")
+        self.auto_interval = self.config.get("execution.auto_interval", 10)
         
         # 取引履歴ファイルのパス
         trade_history_dir = self.config.get("logging.trade_history_dir", "data")
@@ -169,19 +173,25 @@ class TradingBot:
             }
             self.save_trade_history(trade_data)
     
-    def check_existing_positions(self):
-        """既存のポジションをチェックし、損切り・利確を実行"""
+    def check_existing_positions(self) -> bool:
+        """
+        既存のポジションをチェックし、損切り・利確を実行する。
+
+        Returns:
+            bool: 少なくとも1件決済した場合 True、それ以外 False
+        """
         try:
             positions = self.risk_manager.get_current_positions()
             
             if not positions:
-                return
+                return False
             
             current_price = self.strategy.get_current_price()
             if current_price is None:
                 self.logger.warning("現在価格が取得できませんでした")
-                return
+                return False
             
+            closed_any = False
             for position in positions:
                 position_id = position.get("positionId")
                 side = position.get("side")
@@ -191,19 +201,22 @@ class TradingBot:
                 # 損切りチェック
                 if self.risk_manager.check_stop_loss(current_price, entry_price, side, size):
                     self.logger.warning(f"損切りを実行: ポジションID {position_id}")
-                    # 決済注文を発注
                     self.close_position(position_id, side, size)
+                    closed_any = True
                     continue
                 
                 # 利確チェック
                 if self.risk_manager.check_take_profit(current_price, entry_price, side, size):
                     self.logger.info(f"利確を実行: ポジションID {position_id}")
-                    # 決済注文を発注
                     self.close_position(position_id, side, size)
+                    closed_any = True
                     continue
+            
+            return closed_any
                     
         except Exception as e:
             self.logger.error(f"ポジションチェックエラー: {e}")
+            return False
     
     def execute_trade(self, signal: str):
         """
@@ -343,12 +356,78 @@ class TradingBot:
             self.logger.exception(f"実行エラー: {e}")
             raise
 
+    def run_until_signal(self):
+        """
+        自動モード: シグナル検出時に注文・決済を行う。
+        買い注文後はループを続行し、売り注文または決済（損切り・利確）実行時に終了する。
+        """
+        self.logger.info("=" * 60)
+        self.logger.info("自動モードを開始します（買いは続行・売り／決済で終了）")
+        self.logger.info("=" * 60)
+
+        # インターバル秒数の安全な設定
+        interval = self.auto_interval or 10
+        if interval <= 0:
+            self.logger.warning(f"auto_interval が不正な値です: {interval} -> 10秒に変更します")
+            interval = 10
+
+        try:
+            while True:
+                # 取引所ステータスを確認
+                status_response = self.client.get_status()
+                status = status_response.get("data", {}).get("status")
+
+                if status != "OPEN":
+                    self.logger.warning(f"取引所が開いていません。ステータス: {status}")
+                    self.logger.info(f"{interval}秒待機して再チェックします")
+                    time.sleep(interval)
+                    continue
+
+                self.logger.debug("取引所は開いています（自動モード）")
+
+                # 既存ポジションのチェック（損切り・利確）
+                closed = self.check_existing_positions()
+                if closed:
+                    self.logger.info("決済を実行したため、自動モードを終了します")
+                    break
+
+                # 現在の価格を取得
+                current_price = self.strategy.get_current_price()
+                if current_price:
+                    self.logger.info(f"現在価格: {current_price:.0f}円")
+
+                # シグナルを取得
+                signal = self.strategy.get_signal()
+
+                if signal:
+                    self.logger.info(f"シグナル検出: {signal}")
+                    self.execute_trade(signal)
+                    if signal == "BUY":
+                        self.logger.info("注文を実行しました。続行します。")
+                    else:
+                        self.logger.info("売り注文を実行したため、自動モードを終了します。")
+                        break
+                else:
+                    self.logger.info("シグナルなし（待機中）")
+
+                self.logger.debug(f"{interval}秒待機して次のシグナルをチェックします")
+                time.sleep(interval)
+
+        except Exception as e:
+            self.logger.exception(f"自動実行ループエラー: {e}")
+            raise
+
 
 def main():
     """メイン関数"""
     try:
         bot = TradingBot()
-        bot.run_once()
+        # 実行モードに応じて動作を切り替え
+        mode = bot.execution_mode
+        if mode == "auto":
+            bot.run_until_signal()
+        else:
+            bot.run_once()
         
     except KeyboardInterrupt:
         print("\nプログラムを中断しました")

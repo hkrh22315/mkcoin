@@ -149,8 +149,8 @@ class MovingAverageStrategy:
             prev_long_ma = long_ma
         
         self.logger.info(
-            f"移動平均線 - 短期: {short_ma:.0f}, 長期: {long_ma:.0f}, "
-            f"前回短期: {prev_short_ma:.0f}, 前回長期: {prev_long_ma:.0f}"
+            f"移動平均線 - 短期: {short_ma:.3f}, 長期: {long_ma:.3f}, "
+            f"前回短期: {prev_short_ma:.3f}, 前回長期: {prev_long_ma:.3f}"
         )
         
         # ゴールデンクロス（短期線が長期線を上抜け）
